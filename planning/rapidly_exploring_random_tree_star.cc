@@ -1,4 +1,6 @@
-#include "RRTStar.h"
+#include "planning/rapidly_exploring_random_tree_star.h"
+
+#include <algorithm>
 
 RRTStar::RRTStar(const Node& start, const Node& goal, const std::vector<Obstacle>& obstacles, double step_size,
                  double goal_threshold, double near_radius, double x_min, double x_max, double y_min, double y_max,
@@ -17,7 +19,7 @@ RRTStar::RRTStar(const Node& start, const Node& goal, const std::vector<Obstacle
   z_max_ = z_max;
   nodes_.emplace_back(start_);
 
-  logs_.open("../data/data.txt");
+  logs_.open("../data/rrt_data.txt");
 }
 
 void RRTStar::Run(int max_iterations) {
@@ -36,14 +38,16 @@ void RRTStar::Run(int max_iterations) {
       --i;
       continue;
     }
+
     if (new_node.x == nearest_node.x && new_node.y == nearest_node.y && new_node.z == nearest_node.z) {
       continue;
     }
+
     // 新节点cost = 父节点（最近节点）的cost + 新节点到父节点的cost（距离)
     double new_cost = nearest_node.cost + GetDistance(new_node, nearest_node);
 
     // 获取以新节点为圆心，规定半径内的近邻节点
-    std::vector<Node*> near_nodes = GetNearNodes(new_node);
+    std::vector<int> near_nodes = GetNearNodes(new_node);
     int min_cost_parent_id = nearest_node.self_id;
     double min_cost = new_cost;
 
@@ -51,13 +55,14 @@ void RRTStar::Run(int max_iterations) {
       new_node.cost = min_cost;
       new_node.parent_id = min_cost_parent_id;
     } else {
-      for (auto near_node : near_nodes) {
-        double cost = near_node->cost + GetDistance(new_node, *near_node);
+      for (int id : near_nodes) {
+        Node& near_node = nodes_[id];
+        double cost = near_node.cost + GetDistance(new_node, near_node);
         // cost小于之前新节点的cost，并且无碰撞，那就把近邻节点作为新节点的父节点
-        if (IsCollisionFree(*near_node, new_node) && cost < min_cost) {
-          min_cost_parent_id = near_node->self_id;
+        if (IsCollisionFree(near_node, new_node) && cost < min_cost) {
+          min_cost_parent_id = near_node.self_id;
           min_cost = cost;
-          // fprintf(stdout, "Change parent id for node %d.\n", i);
+          // fprintf(stdout, "New node's parent id changed from %d to %d.\n", new_node.parent_id, min_cost_parent_id);
         }
       }
       // 为新节点指定cost最小的父节点
@@ -67,11 +72,12 @@ void RRTStar::Run(int max_iterations) {
     nodes_.emplace_back(new_node);
 
     // RRT树重新布线：判断是否可以将新节点作为近邻节点的父节点
-    for (auto near_node : near_nodes) {
-      double cost = new_cost + GetDistance(*near_node, new_node);
-      if (IsCollisionFree(new_node, *near_node) && cost < near_node->cost) {
-        near_node->cost = cost;
-        near_node->parent_id = new_node.self_id;
+    for (int id : near_nodes) {
+      Node& near_node = nodes_[id];
+      double cost = new_cost + GetDistance(near_node, new_node);
+      if (IsCollisionFree(new_node, near_node) && cost < near_node.cost) {
+        near_node.cost = cost;
+        near_node.parent_id = new_node.self_id;
       }
     }
 
@@ -147,11 +153,11 @@ Node RRTStar::Extend(const Node& from_node, const Node& to_node) {
 }
 
 // 获取附近的节点
-std::vector<Node*> RRTStar::GetNearNodes(const Node& node) {
-  std::vector<Node*> near_nodes;
+std::vector<int> RRTStar::GetNearNodes(const Node& node) {
+  std::vector<int> near_nodes;
   for (int i = 0; i < nodes_.size(); i++) {
     if (GetDistance(node, nodes_[i]) <= near_radius_ && IsCollisionFree(node, nodes_[i])) {
-      near_nodes.emplace_back(&nodes_[i]);
+      near_nodes.emplace_back(nodes_[i].self_id);
     }
   }
   return near_nodes;
@@ -180,47 +186,4 @@ void RRTStar::ViewAllNodes() const {
   for (auto it = nodes_.begin(); it != nodes_.end(); ++it) {
     fprintf(stdout, "Node %d: %d, %2.4f, %2.4f, %2.4f.\n", it->self_id, it->parent_id, it->x, it->y, it->z);
   }
-}
-
-int main() {
-  // 定义RRT*算法参数
-  double step_size = 0.5;
-  double goal_threshold = 0.5;
-  double x_min = 0.0;
-  double x_max = 20.0;
-  double y_min = 0.0;
-  double y_max = 20.0;
-  double z_min = 0.0;
-  double z_max = 20.0;
-  double near_radius = 2.0;
-  int max_iterations = 100000;
-
-  // 定义起点和终点
-  Node start{0.0, 0.0, 0.0, 0, -1, 0.0};
-  Node goal{10.0, 10.0, 10.0, max_iterations, -1, 0.0};
-
-  // 定义障碍物
-  std::vector<Obstacle> obstacles{{5.0, 5.0, 5.0, 2.0}, {7.0, 7.0, 7.0, 1.0}};
-
-  // 定义RRT*算法实例
-  RRTStar rrt(start, goal, obstacles, step_size, goal_threshold, near_radius, x_min, x_max, y_min, y_max, z_min, z_max);
-
-  // 调用RRT*算法函数
-  rrt.Run(max_iterations);
-
-  // 获取路径结果
-  std::vector<Node> path = rrt.GetPath();
-
-  // 输出路径
-  std::cout << "Path: ";
-  for (int i = 0; i < path.size(); i++) {
-    rrt.logs_ << path[i].x << ", " << path[i].y << ", " << path[i].z << std::endl;
-    std::cout << "(" << path[i].self_id << ", " << path[i].x << ", " << path[i].y << ", " << path[i].z << ")";
-    if (i < path.size() - 1) {
-      std::cout << " -> ";
-    }
-  }
-  std::cout << std::endl;
-
-  return 0;
 }

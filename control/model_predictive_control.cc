@@ -1,4 +1,4 @@
-#include "MPC.h"
+#include "control/model_predictive_control.h"
 
 MPCController::MPCController(const CarModel& car, const MPCParams& params) {
   car_ = car;
@@ -6,7 +6,7 @@ MPCController::MPCController(const CarModel& car, const MPCParams& params) {
   states_.setZero();
   control_.setZero();
   states_terminate_count_ = 0;
-  logs_.open("/home/xu/Work/rrt/data/data.txt");
+  logs_.open("/home/xu/Work/rrt/data/mpc_data.txt");
   if (!logs_.is_open()) {
     fprintf(stderr, "Failed open data file.\n");
   }
@@ -168,59 +168,4 @@ bool MPCController::IsTerminate() {
   }
 
   return is_terminate;
-}
-
-int main() {
-  // 定义小车模型和MPC参数
-  CarModel car;
-  car.sp_dt = 0.1;
-  car.ct_dt = 0.01;
-  car.width = 0.3973;
-  car.radius = 0.084;
-  car.v_max = 0.2;
-  MPCParams params;
-  params.horizon = 50;
-  params.Q.setZero();
-  params.Q(0, 0) = 10.0;
-  params.Q(1, 1) = 10.0;
-  params.Q(2, 2) = 0.01;
-  params.R.setZero();
-  params.R(0, 0) = 0.1;
-  params.R(1, 1) = 0.1;
-  params.P.setZero();
-  params.P(0, 0) = 1;
-  params.P(1, 1) = 1;
-  params.P(2, 2) = 0.01;
-
-  // 初始化MPC控制器
-  MPCController controller(car, params);
-
-  // 定义初始状态和目标状态
-  CarStates initState;
-  initState << 0.0, 0.0, 0.0, 0.0, 0.0;
-  CarStates targetState;
-  targetState << 1.0, 4.0, 1.0, 0.0, 0.0;
-
-  CarStates curr_state = initState;
-  // 运行MPC控制器
-  for (int i = 0; i < 100000; ++i) {
-    // 更新状态
-    controller.UpdateState(curr_state, targetState);
-
-    // 计算控制输入
-    CarControl control = controller.GetNextControl();
-    // std::cout << "constrol: " << control.transpose() << std::endl;
-
-    // 输出控制输入和下一个状态
-    curr_state = controller.NextState(curr_state, control);
-    fprintf(stdout, "Time %2.4f, pose %2.4f, %2.4f, %2.4f.\n", i * car.ct_dt, curr_state(0), curr_state(1),
-            curr_state(2));
-
-    if (controller.IsTerminate()) {
-      fprintf(stdout, "Termination condition reached.\n");
-      break;
-    }
-  }
-
-  return 0;
 }

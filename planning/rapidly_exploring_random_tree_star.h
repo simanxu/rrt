@@ -1,5 +1,5 @@
-#ifndef RRTSTAR_H_
-#define RRTSTAR_H_
+#ifndef PLANNING_RAPIDLY_EXPLORING_RANDOM_TREE_STAR_H_
+#define PLANNING_RAPIDLY_EXPLORING_RANDOM_TREE_STAR_H_
 
 #include <cmath>
 #include <fstream>
@@ -47,7 +47,7 @@ class RRTStar {
 
   Node Extend(const Node& from_node, const Node& to_node);
 
-  std::vector<Node*> GetNearNodes(const Node& node);
+  std::vector<int> GetNearNodes(const Node& node);
 
   bool IsCollisionFree(const Node& from_node, const Node& to_node) const;
 
@@ -72,4 +72,4 @@ class RRTStar {
   double z_max_;
 };
 
-#endif  // RRTSTAR_H_
+#endif  // PLANNING_RAPIDLY_EXPLORING_RANDOM_TREE_STAR_H_

@@ -1,5 +1,5 @@
-#ifndef ALGORITHM_MPC_H_
-#define ALGORITHM_MPC_H_
+#ifndef CONTROL_MODEL_PREDICTIVE_CONTROL_H_
+#define CONTROL_MODEL_PREDICTIVE_CONTROL_H_
 #include <fstream>
 #include <iostream>
 
@@ -56,4 +56,4 @@ class MPCController {
   CarControl control_;
 };
 
-#endif  // ALGORITHM_MPC_H_
+#endif  // CONTROL_MODEL_PREDICTIVE_CONTROL_H_

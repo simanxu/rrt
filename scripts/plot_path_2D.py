@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # 获取"data.txt"文件的路径
-data_path = os.path.join(os.path.dirname(__file__), "../data/data.txt")
+data_path = os.path.join(os.path.dirname(__file__), "../data/rrt_data.txt")
 
 # 从data.txt文件中读取数据点
 points = []

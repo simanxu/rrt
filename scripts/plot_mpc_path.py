@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # 获取"data.txt"文件的路径
-data_path = os.path.join(os.path.dirname(__file__), "../data/data.txt")
+data_path = os.path.join(os.path.dirname(__file__), "../data/mpc_data.txt")
 
 # 从文件中读取位姿数据
 poses = []
