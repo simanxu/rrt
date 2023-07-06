@@ -6,9 +6,12 @@ from mpl_toolkits.mplot3d import Axes3D, axes3d
 
 import numpy as np
 
+# 获取"data.txt"文件的路径
+data_path = os.path.join(os.path.dirname(__file__), "../data/data.txt")
+
 # 从data.txt文件中读取数据点
 points = []
-with open("../data/data.txt", "r") as f:
+with open(data_path, "r") as f:
     for line in f:
         x, y, z = [float(x) for x in line.strip().split(",")]
         points.append((x, y, z))
