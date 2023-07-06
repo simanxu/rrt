@@ -1,167 +1,225 @@
-#include <iostream>
-#include <qpOASES.hpp>
-#include <vector>
+#include "MPC.h"
 
-// 二维点结构体
-struct Point2D {
-  double x;
-  double y;
-};
-
-// 两轮移动底盘结构体
-struct MobileRobot {
-  double wheelbase;  // 轮距
-  double max_speed;  // 最大速度
-  double max_accel;  // 最大加速度
-};
-
-// MPC跟踪器结构体
-struct MPC {
-  MobileRobot robot;                      // 两轮移动底盘
-  std::vector<Point2D> reference_points;  // 参考点
-  double dt;                              // 时间步长
-  int horizon;                            // 预测时间步数
-};
-
-// 计算底盘状态矩阵
-Eigen::MatrixXd calculateStateMatrix(MPC mpc, int i) {
-  Eigen::MatrixXd A(3, 3);
-  A << 1, 0, -mpc.robot.max_speed * mpc.dt * sin(i * mpc.dt * mpc.robot.max_speed / mpc.robot.wheelbase), 0, 1,
-      mpc.robot.max_speed * mpc.dt * cos(i * mpc.dt * mpc.robot.max_speed / mpc.robot.wheelbase), 0, 0, 1;
-  return A;
-}
-
-// 计算底盘输入矩阵
-Eigen::MatrixXd calculateInputMatrix(MPC mpc, int i) {
-  Eigen::MatrixXd B(3, 2);
-  B << mpc.dt * cos(i * mpc.dt * mpc.robot.max_speed / mpc.robot.wheelbase), 0,
-      mpc.dt * sin(i * mpc.dt * mpc.robot.max_speed / mpc.robot.wheelbase), 0, 0, mpc.dt;
-  return B;
-}
-
-// 计算底盘状态约束矩阵
-Eigen::MatrixXd calculateStateConstraintMatrix(MPC mpc) {
-  Eigen::MatrixXd A(2 * (mpc.horizon + 1), 3 * (mpc.horizon + 1));
-  for (int i = 0; i < mpc.horizon + 1; i++) {
-    A.block<2, 3>(2 * i, 3 * i) = Eigen::MatrixXd::Identity(2, 3);
+MPCController::MPCController(const CarModel& car, const MPCParams& params) {
+  car_ = car;
+  params_ = params;
+  states_.setZero();
+  control_.setZero();
+  states_terminate_count_ = 0;
+  logs_.open("/home/xu/Work/rrt/data/data.txt");
+  if (!logs_.is_open()) {
+    fprintf(stderr, "Failed open data file.\n");
   }
-  return A;
 }
 
-// 计算底盘状态约束边界
-Eigen::VectorXd calculateStateConstraintBoundary(MPC mpc, Point2D current_state) {
-  Eigen::VectorXd b(2 * (mpc.horizon + 1));
-  for (int i = 0; i < mpc.horizon + 1; i++) {
-    b.segment<2>(2 * i) << current_state.x, current_state.y;
+MPCController::~MPCController() {}
+
+void MPCController::UpdateState(const CarStates& state, const CarStates& target) {
+  states_prev_ = states_;
+  states_ = state;
+  target_ = target;
+}
+
+CarStates MPCController::NextState(const CarStates& state, const CarControl& control) {
+  // k时刻状态
+  double yaw_k = state(2);
+  double v_k = state(3);
+  double dt = car_.ct_dt;
+
+  // 离散形式状态转移方程
+  Eigen::MatrixXd A(n, n);
+  A(0, 0) = 1.0;
+  A(0, 1) = 0.0;
+  A(0, 2) = -dt * v_k * std::sin(yaw_k);
+  A(1, 0) = 0.0;
+  A(1, 1) = 1.0;
+  A(1, 2) = dt * v_k * std::cos(yaw_k);
+  A(2, 0) = 0.0;
+  A(2, 1) = 0.0;
+  A(2, 2) = 1.0;
+  Eigen::MatrixXd B(n, m);
+  B(0, 0) = dt * std::cos(yaw_k);
+  B(0, 1) = 0.0;
+  B(1, 0) = dt * std::sin(yaw_k);
+  B(1, 1) = 0.0;
+  B(2, 0) = 0.0;
+  B(2, 1) = dt;
+
+  // x(k+1) - x(k) = A * 0 + B * u(k)
+  CarStates state_next;
+  state_next.head(n) = state.head(n) + B * control;
+  double v_next = (control(0) + control(1)) * car_.radius / 2.0;
+  double w_next = (control(1) - control(0)) * car_.radius / car_.width;
+  state_next.tail(2) << v_next, w_next;
+  return state_next;
+}
+
+CarControl MPCController::GetNextControl() {
+  // 定义问题维度和时间步长
+  const int N = params_.horizon;  // 预测时间步数
+  const double dt = car_.sp_dt;   // 预测时间步长
+  double yaw_k = states_(2);
+  double v_k = states_(3);
+
+  // 离散形式状态转移方程
+  Eigen::MatrixXd A(n, n);
+  A(0, 0) = 1.0;
+  A(0, 1) = 0.0;
+  A(0, 2) = -dt * v_k * std::sin(yaw_k);
+  A(1, 0) = 0.0;
+  A(1, 1) = 1.0;
+  A(1, 2) = dt * v_k * std::cos(yaw_k);
+  A(2, 0) = 0.0;
+  A(2, 1) = 0.0;
+  A(2, 2) = 1.0;
+  Eigen::MatrixXd B(n, m);
+  B(0, 0) = dt * std::cos(yaw_k);
+  B(0, 1) = 0.0;
+  B(1, 0) = dt * std::sin(yaw_k);
+  B(1, 1) = 0.0;
+  B(2, 0) = 0.0;
+  B(2, 1) = dt;
+
+  // 定义迭代形式
+  Eigen::MatrixXd Aqp = Eigen::MatrixXd::Zero(n * N, n * N);
+  Eigen::MatrixXd Bqp = Eigen::MatrixXd::Zero(n * N, m * N);
+  Eigen::Matrix3d A_pow[N + 1];
+  A_pow[0].setIdentity();
+  for (int i = 0; i < N; ++i) {
+    A_pow[i + 1] = A * A_pow[i];
+    Aqp.block(i * n, i * n, n, n) = A_pow[i + 1];
+    for (int j = 0; j < i + 1; ++j) {
+      Bqp.block(i * n, j * m, n, m) = A_pow[i - j] * B;
+    }
   }
-  return b;
-}
 
-// 计算底盘输入约束矩阵
-Eigen::MatrixXd calculateInputConstraintMatrix(MPC mpc) {
-  Eigen::MatrixXd A(2 * mpc.horizon, 2 * (mpc.horizon + 1));
-  for (int i = 0; i < mpc.horizon; i++) {
-    A.block<2, 2>(2 * i, 2 * i) = Eigen::MatrixXd::Identity(2, 2);
-    A.block<2, 2>(2 * i, 2 * (i + 1)) = -Eigen::MatrixXd::Identity(2, 2);
+  // 定义目标状态
+  Eigen::VectorXd x_now(n * N);
+  Eigen::VectorXd x_ref(n * N);
+  for (int i = 0; i < N; ++i) {
+    x_now.segment(i * n, n) = states_.head(n);
+    x_ref.segment(i * n, n) = target_.head(n);
   }
-  return A;
-}
 
-// 计算底盘输入约束边界
-Eigen::VectorXd calculateInputConstraintBoundary(MPC mpc) {
-  Eigen::VectorXd b(2 * mpc.horizon);
-  b << mpc.robot.max_accel, mpc.robot.max_accel, -mpc.robot.max_accel, -mpc.robot.max_accel, mpc.robot.max_accel,
-      mpc.robot.max_accel, -mpc.robot.max_accel, -mpc.robot.max_accel, Eigen::VectorXd::Zero(2 * (mpc.horizon - 2));
-  return b;
-}
-
-// 计算代价函数矩阵
-Eigen::MatrixXd calculateCostMatrix(MPC mpc) {
-  Eigen::MatrixXd Q(3, 3);
-  Q << 1, 0, 0, 0, 1, 0, 0, 0, 0.1;
-  Eigen::MatrixXd R(2, 2);
-  R << 0.1, 0, 0, 0.1;
-  Eigen::MatrixXd H =
-      Eigen::MatrixXd::Zero(3 * (mpc.horizon + 1) + 2 * mpc.horizon, 3 * (mpc.horizon + 1) + 2 * mpc.horizon);
-  for (int i = 0; i < mpc.horizon; i++) {
-    H.block<3, 3>(3 * i, 3 * i) += Q;
-    H.block<2, 2>(3 * (mpc.horizon + i) + 2 * i, 3 * (mpc.horizon + i) + 2 * i) += R;
+  Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(n * N, n * N);
+  Eigen::MatrixXd R = Eigen::MatrixXd::Zero(m * N, m * N);
+  for (int i = 0; i < N; ++i) {
+    Q.block(i * n, i * n, n, n) = params_.Q;
+    R.block(i * m, i * m, m, m) = params_.R;
   }
-  H.block<3, 3>(3 * (mpc.horizon), 3 * (mpc.horizon)) += Q;
-  return H;
-}
+  Q.bottomRightCorner(n, n) = params_.P;
+  // std::cout << "Q\n" << Q << std::endl;
+  // std::cout << "R\n" << R << std::endl;
 
-// 计算代价函数边界
-Eigen::VectorXd calculateCostBoundary(MPC mpc, Point2D current_state) {
-  Eigen::VectorXd f(3 * (mpc.horizon + 1) + 2 * mpc.horizon);
-  for (int i = 0; i < mpc.horizon; i++) {
-    f.segment<3>(3 * i) << -mpc.reference_points[i].x, -mpc.reference_points[i].y, -current_state.x;
-    f.segment<2>(3 * (mpc.horizon + i) + 2 * i) << -mpc.reference_points[i].x, -mpc.reference_points[i].y;
-  }
-  f.segment<3>(3 * (mpc.horizon)) << -mpc.reference_points[mpc.horizon].x, -mpc.reference_points[mpc.horizon].y,
-      -current_state.x;
-  return f;
-}
+  // 定义QP问题的约束和目标函数
+  Eigen::MatrixXd H(m * N, m * N);
+  Eigen::VectorXd g(m * N);
+  Eigen::MatrixXd Aqp_t = Aqp.transpose();
+  Eigen::MatrixXd Bqp_t = Bqp.transpose();
+  H = R + Bqp_t * Q * Bqp;
+  g = (x_now - x_ref).transpose() * Aqp_t * Q * Bqp;
 
-// MPC跟踪函数
-Point2D trackMPC(MPC mpc, Point2D current_state) {
-  // 初始化qpOASES求解器
+  // 定义约束条件
+  Eigen::VectorXd lbx = Eigen::VectorXd::Constant(n * N, -car_.v_max);
+  Eigen::VectorXd ubx = Eigen::VectorXd::Constant(n * N, car_.v_max);
+
+  // 构建QP问题
+  qpOASES::QProblem qp(m * N, 0);
   qpOASES::Options options;
-  qpOASES::SQProblem solver(3 * (mpc.horizon + 1) + 2 * mpc.horizon, 2 * (mpc.horizon + 1));
+  options.setToDefault();
+  options.terminationTolerance = 1e-6;
+  options.printLevel = qpOASES::PL_NONE;
+  options.enableRegularisation = qpOASES::BT_FALSE;
+  qp.setOptions(options);
 
-  // 计算qpOASES所需的矩阵和向量
-  Eigen::MatrixXd H = calculateCostMatrix(mpc);
-  Eigen::VectorXd f = calculateCostBoundary(mpc, current_state);
-  Eigen::MatrixXd Aeq = calculateStateConstraintMatrix(mpc);
-  Eigen::VectorXd beq = calculateStateConstraintBoundary(mpc, current_state);
-  Eigen::MatrixXd Ain = calculateInputConstraintMatrix(mpc);
-  Eigen::VectorXd bin = calculateInputConstraintBoundary(mpc);
-
-  // 求解QP问题
-  qpOASES::int_t nWSR = options.initialization.maxIter;
-  qpOASES::returnValue status =
-      solver.init(H.data(), f.data(), Ain.data(), nullptr, Aeq.data(), beq.data(), bin.data(), nWSR);
-
-  if (status != qpOASES::SUCCESSFUL_RETURN) {
-    std::cerr << "qpOASES solver failed to initialize!" << std::endl;
-    return current_state;
+  // 解决QP问题
+  int nWSR = 1000;
+  qpOASES::returnValue rv_init = qp.init(H.data(), g.data(), 0, lbx.data(), ubx.data(), 0, 0, nWSR);
+  if (rv_init != qpOASES::returnValue::SUCCESSFUL_RETURN) {
+    fprintf(stdout, "Error init qp, error code %d.\n", rv_init);
   }
 
-  qpOASES::real_t xOpt[3 * (mpc.horizon + 1) + 2 * mpc.horizon];
+  Eigen::VectorXd control = Eigen::VectorXd::Zero(m * N);
+  rv_init = qp.getPrimalSolution(control.data());
+  if (rv_init != qpOASES::returnValue::SUCCESSFUL_RETURN) {
+    fprintf(stdout, "Error solve qp, error code %d.\n", rv_init);
+  }
+  control_ = control.head(m);
 
-  status = solver.getPrimalSolution(xOpt);
+  // 输出控制输入并返回
+  // std::cout << "control: " << control_.transpose() << std::endl;
+  return control_;
+}
 
-  if (status != qpOASES::SUCCESSFUL_RETURN) {
-    std::cerr << "qpOASES solver failed to solve the problem!" << std::endl;
-    return current_state;
+bool MPCController::IsTerminate() {
+  logs_ << states_.head(n).transpose() << std::endl;
+  // if (((states_ - target_).cwiseAbs().array() < terninate_threshold).all()) {
+  //   fprintf(stdout, "Targets termination condition reached.\n");
+  // }
+
+  if (((states_ - states_prev_).cwiseAbs().array() < states_threshold).all()) {
+    ++states_terminate_count_;
+    // fprintf(stdout, "States termination condition reached.\n");
+  }
+  bool is_terminate =
+      ((states_ - target_).cwiseAbs().array() < terninate_threshold).all() || (states_terminate_count_ > 10);
+  if (is_terminate) {
+    logs_ << target_.head(n).transpose() << std::endl;
   }
 
-  // 获取下一时刻底盘状态
-  Point2D next_state = {xOpt[3], xOpt[6]};
-
-  return next_state;
+  return is_terminate;
 }
 
 int main() {
-  // 创建MPC跟踪器
-  MPC mpc;
-  mpc.robot.wheelbase = 1.0;
-  mpc.robot.max_speed = 2.0;
-  mpc.robot.max_accel = 1.0;
-  mpc.dt = 0.1;
-  mpc.horizon = 10;
+  // 定义小车模型和MPC参数
+  CarModel car;
+  car.sp_dt = 0.1;
+  car.ct_dt = 0.01;
+  car.width = 0.3973;
+  car.radius = 0.084;
+  car.v_max = 0.2;
+  MPCParams params;
+  params.horizon = 50;
+  params.Q.setZero();
+  params.Q(0, 0) = 10.0;
+  params.Q(1, 1) = 10.0;
+  params.Q(2, 2) = 0.01;
+  params.R.setZero();
+  params.R(0, 0) = 0.1;
+  params.R(1, 1) = 0.1;
+  params.P.setZero();
+  params.P(0, 0) = 1;
+  params.P(1, 1) = 1;
+  params.P(2, 2) = 0.01;
 
-  // 添加参考点
-  std::vector<Point2D> reference_points = {{0.0, 0.0}, {1.0, 1.0}, {2.0, 0.0}, {3.0, 1.0}, {4.0, 0.0}};
-  mpc.reference_points = reference_points;
+  // 初始化MPC控制器
+  MPCController controller(car, params);
 
-  // 计算底盘轨迹
-  std::vector<Point2D> trajectory = calculateTrajectory(mpc);
+  // 定义初始状态和目标状态
+  CarStates initState;
+  initState << 0.0, 0.0, 0.0, 0.0, 0.0;
+  CarStates targetState;
+  targetState << 1.0, 4.0, 1.0, 0.0, 0.0;
 
-  // 输出底盘轨迹
-  std::cout << "底盘轨迹：" << std::endl;
-  for (auto point : trajectory) {
-    std::cout << "(" << point.x << ", " << point.y << ")" << std::endl;
+  CarStates curr_state = initState;
+  // 运行MPC控制器
+  for (int i = 0; i < 100000; ++i) {
+    // 更新状态
+    controller.UpdateState(curr_state, targetState);
+
+    // 计算控制输入
+    CarControl control = controller.GetNextControl();
+    // std::cout << "constrol: " << control.transpose() << std::endl;
+
+    // 输出控制输入和下一个状态
+    curr_state = controller.NextState(curr_state, control);
+    fprintf(stdout, "Time %2.4f, pose %2.4f, %2.4f, %2.4f.\n", i * car.ct_dt, curr_state(0), curr_state(1),
+            curr_state(2));
+
+    if (controller.IsTerminate()) {
+      fprintf(stdout, "Termination condition reached.\n");
+      break;
+    }
   }
 
   return 0;
