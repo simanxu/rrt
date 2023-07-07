@@ -6,7 +6,7 @@ MPCController::MPCController(const CarModel& car, const MPCParams& params) {
   states_.setZero();
   control_.setZero();
   states_terminate_count_ = 0;
-  logs_.open("/home/xu/Work/rrt/data/mpc_data.txt");
+  logs_.open("../data/mpc_data.txt");
   if (!logs_.is_open()) {
     fprintf(stderr, "Failed open data file.\n");
   }
@@ -54,7 +54,7 @@ CarStates MPCController::NextState(const CarStates& state, const CarControl& con
   return state_next;
 }
 
-CarControl MPCController::GetNextControl() {
+CarControl MPCController::GetNextControl(double t) {
   // 定义问题维度和时间步长
   const int N = params_.horizon;  // 预测时间步数
   const double dt = car_.sp_dt;   // 预测时间步长
@@ -134,17 +134,18 @@ CarControl MPCController::GetNextControl() {
 
   // 解决QP问题
   int nWSR = 1000;
-  qpOASES::returnValue rv_init = qp.init(H.data(), g.data(), 0, lbx.data(), ubx.data(), 0, 0, nWSR);
-  if (rv_init != qpOASES::returnValue::SUCCESSFUL_RETURN) {
-    fprintf(stdout, "Error init qp, error code %d.\n", rv_init);
+  qpOASES::returnValue qp_return = qp.init(H.data(), g.data(), 0, lbx.data(), ubx.data(), 0, 0, nWSR);
+  if (qp_return != qpOASES::returnValue::SUCCESSFUL_RETURN) {
+    fprintf(stdout, "Error init qp, error code %d.\n", qp_return);
   }
 
   Eigen::VectorXd control = Eigen::VectorXd::Zero(m * N);
-  rv_init = qp.getPrimalSolution(control.data());
-  if (rv_init != qpOASES::returnValue::SUCCESSFUL_RETURN) {
-    fprintf(stdout, "Error solve qp, error code %d.\n", rv_init);
+  qp_return = qp.getPrimalSolution(control.data());
+  if (qp_return != qpOASES::returnValue::SUCCESSFUL_RETURN) {
+    fprintf(stdout, "Error solve qp, error code %d.\n", qp_return);
+  } else {
+    control_ = control.head(m);
   }
-  control_ = control.head(m);
 
   // 输出控制输入并返回
   // std::cout << "control: " << control_.transpose() << std::endl;
@@ -163,9 +164,5 @@ bool MPCController::IsTerminate() {
   }
   bool is_terminate =
       ((states_ - target_).cwiseAbs().array() < terninate_threshold).all() || (states_terminate_count_ > 10);
-  if (is_terminate) {
-    logs_ << target_.head(n).transpose() << std::endl;
-  }
-
   return is_terminate;
 }

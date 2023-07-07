@@ -86,7 +86,7 @@ void RRTStar::Run(int max_iterations) {
       goal_.self_id = i + 1;
       goal_.parent_id = new_node.self_id;
       nodes_.emplace_back(goal_);
-      fprintf(stdout, "Terminate reached with %ld steps.\n", nodes_.size());
+      fprintf(stdout, "RRT terminate reached with %ld steps.\n", nodes_.size());
       return;
     }
   }

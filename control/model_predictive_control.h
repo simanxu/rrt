@@ -1,10 +1,11 @@
 #ifndef CONTROL_MODEL_PREDICTIVE_CONTROL_H_
 #define CONTROL_MODEL_PREDICTIVE_CONTROL_H_
+#include <Eigen/Dense>
 #include <fstream>
 #include <iostream>
-
-#include <Eigen/Dense>
 #include <qpOASES.hpp>
+
+#include "planning/path_optimization.h"
 
 // 定义小车模型
 struct CarModel {
@@ -39,11 +40,13 @@ class MPCController {
 
   void UpdateState(const CarStates& state, const CarStates& target);
 
-  CarControl GetNextControl();
+  CarControl GetNextControl(double t = -0.1);
 
   CarStates NextState(const CarStates& state, const CarControl& control);
 
   bool IsTerminate();
+
+  void SetPath(const std::vector<PathData>& path) { path_ = path; }
 
  private:
   int states_terminate_count_;
@@ -54,6 +57,7 @@ class MPCController {
   CarStates states_prev_;
   CarStates target_;
   CarControl control_;
+  std::vector<PathData> path_;
 };
 
 #endif  // CONTROL_MODEL_PREDICTIVE_CONTROL_H_

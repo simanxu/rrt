@@ -12,6 +12,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_library(rrt STATIC planning/rapidly_exploring_random_tree_star.cc)
 target_compile_options(rrt PRIVATE "-O3")
 
+add_library(path_opt STATIC planning/path_optimization.cc)
+target_compile_options(path_opt PRIVATE "-O3")
+
 add_library(mpc STATIC control/model_predictive_control.cc)
 target_link_libraries(mpc PRIVATE qpOASES)
 target_compile_options(mpc PRIVATE "-O3")
@@ -22,5 +25,6 @@ target_link_libraries(test
 PRIVATE
   rrt
   mpc
+  path_opt
 )
 target_compile_options(test PRIVATE "-O3")
