@@ -331,11 +331,19 @@ void TestRRT2DAndOpt() {
   std::vector<PathData> trajectory;
   std::vector<PathData> opt_trajectory;
   PathData data;
-  for (int i = 0; i < path.size(); i++) {
-    data.time = i;
+  for (int i = 0; i < path.size(); ++i) {
+    data.time = 0.0;
     data.pos << path[i].x, path[i].y, path[i].z;
     trajectory.emplace_back(data);
-    fprintf(stdout, "raw: %2.4f %2.4f %2.4f %2.4f.\n", data.time, data.pos(0), data.pos(1), data.pos(2));
+    // fprintf(stdout, "raw: %2.4f %2.4f %2.4f %2.4f.\n", data.time, data.pos(0), data.pos(1), data.pos(2));
+  }
+
+  const double vel_set = 1.0;
+  for (int i = 1; i < trajectory.size(); ++i) {
+    double distance = (trajectory[i].pos - trajectory[i - 1].pos).norm();
+    trajectory[i].time = distance / vel_set + trajectory[i - 1].time;
+    fprintf(stdout, "raw: %2.4f %2.4f %2.4f %2.4f.\n", trajectory[i].time, trajectory[i].pos(0), trajectory[i].pos(1),
+            trajectory[i].pos(2));
   }
 
   PathOptimization opt(5);
@@ -358,16 +366,16 @@ void TestRRT2DAndOpt() {
   MPCParams params;
   params.horizon = 10;
   params.Q.setZero();
-  params.Q(0, 0) = 1.0;
-  params.Q(1, 1) = 1.0;
-  params.Q(2, 2) = 1.0;
+  params.Q(0, 0) = 10.0;
+  params.Q(1, 1) = 10.0;
+  params.Q(2, 2) = 0.01;
   params.R.setZero();
   params.R(0, 0) = 0.1;
   params.R(1, 1) = 0.1;
   params.P.setZero();
-  params.P(0, 0) = 1;
-  params.P(1, 1) = 1;
-  params.P(2, 2) = 1;
+  params.P(0, 0) = 10;
+  params.P(1, 1) = 10;
+  params.P(2, 2) = 0.01;
 
   // 初始化MPC控制器
   MPCController controller(car, params);
@@ -382,10 +390,13 @@ void TestRRT2DAndOpt() {
   std::vector<PathData> path_ref;
   int path_id = 0;
   // 运行MPC控制器
-  double time = 0.0;
+  double cur_time = 0.0;
+  double ref_time = 0.0;
   for (int i = 0; i < 10000000; ++i) {
     // 获取参考
-    path_ref = opt.GetReferencePath(time, car.sp_dt, params.horizon);
+    path_ref = opt.GetReferencePath(cur_time, car.sp_dt, params.horizon);
+    ref_time = cur_time + car.sp_dt * params.horizon;
+    targetState << path_ref.back().pos, 0.0, 0.0;
 
     // 更新参考
     controller.SetRefPath(path_ref);
@@ -399,13 +410,19 @@ void TestRRT2DAndOpt() {
 
     // 输出控制输入和下一个状态
     curr_state = controller.NextState(curr_state, control);
-    // fprintf(stdout, "Time %2.4f, pose %2.4f, %2.4f, %2.4f.\n", i * car.ct_dt, curr_state(0), curr_state(1),
-    //         curr_state(2));
+    fprintf(stdout, "Time %2.4f(%2.4f), pose %2.4f(%2.4f), %2.4f(%2.4f), %2.4f(%2.4f).\n", cur_time, ref_time,
+            curr_state(0), targetState(0), curr_state(1), targetState(1), curr_state(2), targetState(2));
 
-    if (controller.IsTerminate() /*|| (i % 1000 == 0)*/) {
-      time += car.sp_dt;
-      targetState << path_ref.back().pos, 0.0, 0.0;
-      fprintf(stdout, "New target: %2.4f %2.4f %2.4f.\n", targetState(0), targetState(1), targetState(2));
+    // 更新下一步跟踪的点
+    if (controller.IsTerminate() || (i % 100 == 0)) {
+      cur_time += car.sp_dt;
+      // fprintf(stdout, "New target: %2.4f %2.4f %2.4f %2.4f.\n", time, targetState(0), targetState(1),
+      // targetState(2));
+    }
+
+    // 是否退出
+    if (ref_time > opt_trajectory.back().time + car.sp_dt) {
+      break;
     }
   }
 }

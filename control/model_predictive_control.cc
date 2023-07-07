@@ -163,10 +163,11 @@ bool MPCController::IsTerminate() {
 
   if (((states_ - states_prev_).cwiseAbs().array() < states_threshold).all()) {
     ++states_terminate_count_;
-    // fprintf(stdout, "States termination condition reached.\n");
+  } else {
+    states_terminate_count_ = 0;
   }
   bool is_terminate =
-      ((states_ - target_).cwiseAbs().head(2).array() < terninate_threshold).all() || (states_terminate_count_ > 10);
+      ((states_ - target_).cwiseAbs().head(2).array() < terninate_threshold).all() || (states_terminate_count_ > 5);
   return is_terminate;
 }
 

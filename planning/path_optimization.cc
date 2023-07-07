@@ -27,6 +27,7 @@ void PathOptimization::OptimizePath(const std::vector<PathData>& path) {
   time_stamp_.resize(len_path_);
   for (int i = 0; i < len_path_; ++i) {
     time_stamp_[i] = path[i].time;
+    std::cout << "time_stamp: " << i << " " << path[i].time << std::endl;
   }
 
   using MatrixRowMajor = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
