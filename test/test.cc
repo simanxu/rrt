@@ -257,8 +257,8 @@ void TestRRT2DAndMPC() {
 
     // 输出控制输入和下一个状态
     curr_state = controller.NextState(curr_state, control);
-    // fprintf(stdout, "Time %2.4f, pose %2.4f, %2.4f, %2.4f.\n", i * car.ct_dt, curr_state(0), curr_state(1),
-    //         curr_state(2));
+    fprintf(stdout, "Time %2.4f, pose %2.4f, %2.4f, %2.4f.\n", i * car.ct_dt, curr_state(0), curr_state(1),
+            curr_state(2));
 
     if (controller.IsTerminate() || (i % 100 == 0)) {
       ++path_id;
@@ -269,7 +269,7 @@ void TestRRT2DAndMPC() {
       targetState(0) = path[path_id].x;
       targetState(1) = path[path_id].y;
       targetState(2) = std::atan2(path[path_id].y - curr_state(1), path[path_id].x - curr_state(0));
-      fprintf(stdout, "New target: %2.4f %2.4f %2.4f.\n", targetState(0), targetState(1), targetState(2));
+      // fprintf(stdout, "New target: %2.4f %2.4f %2.4f.\n", targetState(0), targetState(1), targetState(2));
     }
   }
 }
@@ -356,18 +356,18 @@ void TestRRT2DAndOpt() {
   car.radius = 0.084;
   car.v_max = 0.2;
   MPCParams params;
-  params.horizon = 50;
+  params.horizon = 10;
   params.Q.setZero();
-  params.Q(0, 0) = 10.0;
-  params.Q(1, 1) = 10.0;
-  params.Q(2, 2) = 0.01;
+  params.Q(0, 0) = 1.0;
+  params.Q(1, 1) = 1.0;
+  params.Q(2, 2) = 1.0;
   params.R.setZero();
   params.R(0, 0) = 0.1;
   params.R(1, 1) = 0.1;
   params.P.setZero();
   params.P(0, 0) = 1;
   params.P(1, 1) = 1;
-  params.P(2, 2) = 0.01;
+  params.P(2, 2) = 1;
 
   // 初始化MPC控制器
   MPCController controller(car, params);
@@ -376,12 +376,20 @@ void TestRRT2DAndOpt() {
   CarStates initState;
   initState << 0.0, 0.0, 0.0, 0.0, 0.0;
   CarStates targetState;
-  targetState << opt_trajectory[0].pos, 0.0, 0.0;
+  targetState << opt_trajectory[1].pos, 0.0, 0.0;
 
   CarStates curr_state = initState;
+  std::vector<PathData> path_ref;
   int path_id = 0;
   // 运行MPC控制器
-  for (int i = 0; i < 10000; ++i) {
+  double time = 0.0;
+  for (int i = 0; i < 10000000; ++i) {
+    // 获取参考
+    path_ref = opt.GetReferencePath(time, car.sp_dt, params.horizon);
+
+    // 更新参考
+    controller.SetRefPath(path_ref);
+
     // 更新状态
     controller.UpdateState(curr_state, targetState);
 
@@ -394,13 +402,9 @@ void TestRRT2DAndOpt() {
     // fprintf(stdout, "Time %2.4f, pose %2.4f, %2.4f, %2.4f.\n", i * car.ct_dt, curr_state(0), curr_state(1),
     //         curr_state(2));
 
-    if (controller.IsTerminate() || (i % 100 == 0)) {
-      ++path_id;
-      if (path_id >= opt_trajectory.size()) {
-        fprintf(stdout, "Termination condition reached.\n");
-        break;
-      }
-      targetState << opt_trajectory[path_id].pos, 0.0, 0.0;
+    if (controller.IsTerminate() /*|| (i % 1000 == 0)*/) {
+      time += car.sp_dt;
+      targetState << path_ref.back().pos, 0.0, 0.0;
       fprintf(stdout, "New target: %2.4f %2.4f %2.4f.\n", targetState(0), targetState(1), targetState(2));
     }
   }

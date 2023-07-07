@@ -54,7 +54,7 @@ CarStates MPCController::NextState(const CarStates& state, const CarControl& con
   return state_next;
 }
 
-CarControl MPCController::GetNextControl(double t) {
+CarControl MPCController::GetNextControl() {
   // 定义问题维度和时间步长
   const int N = params_.horizon;  // 预测时间步数
   const double dt = car_.sp_dt;   // 预测时间步长
@@ -98,7 +98,10 @@ CarControl MPCController::GetNextControl(double t) {
   Eigen::VectorXd x_ref(n * N);
   for (int i = 0; i < N; ++i) {
     x_now.segment(i * n, n) = states_.head(n);
+    // use terminate point
     x_ref.segment(i * n, n) = target_.head(n);
+    // // use reference path
+    // x_ref.segment(i * n, n) = path_ref_[i].pos;
   }
 
   Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(n * N, n * N);
@@ -163,6 +166,8 @@ bool MPCController::IsTerminate() {
     // fprintf(stdout, "States termination condition reached.\n");
   }
   bool is_terminate =
-      ((states_ - target_).cwiseAbs().array() < terninate_threshold).all() || (states_terminate_count_ > 10);
+      ((states_ - target_).cwiseAbs().head(2).array() < terninate_threshold).all() || (states_terminate_count_ > 10);
   return is_terminate;
 }
+
+void MPCController::SetRefPath(const std::vector<PathData>& path) { path_ref_ = path; }

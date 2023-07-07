@@ -1,5 +1,6 @@
 #include "planning/path_optimization.h"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <qpOASES.hpp>
@@ -318,15 +319,17 @@ void PathOptimization::SaveOptimizedPath(const std::vector<PathData>& path) {
 }
 
 PathData PathOptimization::GetOptimizedPath(double t) {
-  PathData data;
-  data.time = t;
+  t = std::clamp(t, 0.0, time_stamp_.tail(1)(0));
   int index = BinarySearch(t);
-  //   std::cout << "time: " << t << ", index: " << index << std::endl;
+  // std::cout << "time: " << t << ", index: " << index << std::endl;
   const int i = index * order_;
   const double t_2 = t * t;
   const double t_3 = t_2 * t;
   const double t_4 = t_3 * t;
   const double t_5 = t_4 * t;
+
+  PathData data;
+  data.time = t;
   if (order_ == 4) {
     data.pos.x() = curve_[0](i) * t_3 + curve_[0](i + 1) * t_2 + curve_[0](i + 2) * t + curve_[0](i + 3);
     data.pos.y() = curve_[1](i) * t_3 + curve_[1](i + 1) * t_2 + curve_[1](i + 2) * t + curve_[1](i + 3);
@@ -353,7 +356,16 @@ PathData PathOptimization::GetOptimizedPath(double t) {
 
 int PathOptimization::BinarySearch(double time) {
   int left = 0, right = len_path_ - 1;
+  // 0 12 12
+  // 1 11 12
+  // 2 10 12
+  // 3 9  12
+  // 4 8  12
+  // 5 7  12
+  // 6 6  12
+  // 7 5  12
   while (left <= right) {
+    // std::cout << "left: " << left << ", right: " << right << std::endl;
     int mid = left + (right - left) / 2;
     if (time_stamp_[mid] <= time) {
       left = mid + 1;
@@ -361,5 +373,16 @@ int PathOptimization::BinarySearch(double time) {
       right = mid - 1;
     }
   }
-  return (left >= len_path_) ? len_path_ - 1 : left - 1;
+  // std::cout << "left: " << left << ", right: " << right << std::endl;
+
+  return (left >= len_path_) ? len_path_ - 2 : left - 1;
+}
+
+std::vector<PathData> PathOptimization::GetReferencePath(double time, double dt, double N) {
+  std::vector<PathData> path_ref;
+  for (int i = 1; i <= N; ++i) {
+    double t = time + i * dt;
+    path_ref.emplace_back(GetOptimizedPath(t));
+  }
+  return path_ref;
 }

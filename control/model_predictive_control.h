@@ -27,8 +27,8 @@ struct MPCParams {
 // 定义问题维度和时间步长，终止条件
 const int n = 3;  // 状态变量数量
 const int m = 2;  // 控制变量数量
-const double states_threshold = 0.001;
-const double terninate_threshold = 0.02;
+const double states_threshold = 0.002;
+const double terninate_threshold = 0.05;
 using CarStates = Eigen::Matrix<double, 5, 1>;
 using CarControl = Eigen::Matrix<double, 2, 1>;
 
@@ -40,13 +40,13 @@ class MPCController {
 
   void UpdateState(const CarStates& state, const CarStates& target);
 
-  CarControl GetNextControl(double t = -0.1);
+  CarControl GetNextControl();
 
   CarStates NextState(const CarStates& state, const CarControl& control);
 
   bool IsTerminate();
 
-  void SetPath(const std::vector<PathData>& path) { path_ = path; }
+  void SetRefPath(const std::vector<PathData>& path);
 
  private:
   int states_terminate_count_;
@@ -57,7 +57,7 @@ class MPCController {
   CarStates states_prev_;
   CarStates target_;
   CarControl control_;
-  std::vector<PathData> path_;
+  std::vector<PathData> path_ref_;
 };
 
 #endif  // CONTROL_MODEL_PREDICTIVE_CONTROL_H_

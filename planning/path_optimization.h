@@ -20,6 +20,8 @@ class PathOptimization {
 
   PathData GetOptimizedPath(double time);
 
+  std::vector<PathData> GetReferencePath(double time, double dt, double N);
+
   void ResetOrder(int order) { order_ = order + 1; }
 
  private:
